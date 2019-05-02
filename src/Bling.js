@@ -556,11 +556,11 @@ class Bling extends Component {
 
     setAttributes(adSlot, attributes) {
         // no clear method, attempting to clear existing attributes before setting new ones.
-        const attributeKeys = adSlot.getAttributeKeys();
+        const attributeKeys = adSlot ? adSlot.getAttributeKeys() : [];
         attributeKeys.forEach(key => {
             adSlot.set(key, null);
         });
-        if (attributes) {
+        if (adSlot && attributes) {
             Object.keys(attributes).forEach(key => {
                 adSlot.set(key, attributes[key]);
             });
@@ -568,17 +568,19 @@ class Bling extends Component {
     }
 
     setTargeting(adSlot, targeting) {
-        adSlot.clearTargeting();
-        if (targeting) {
-            Object.keys(targeting).forEach(key => {
-                adSlot.setTargeting(key, targeting[key]);
-            });
+        if (adSlot) {
+            adSlot.clearTargeting();
+            if (targeting) {
+                Object.keys(targeting).forEach(key => {
+                    adSlot.setTargeting(key, targeting[key]);
+                });
+            }
         }
     }
 
     addCompanionAdService(serviceConfig, adSlot) {
         const companionAdsService = Bling._adManager.googletag.companionAds();
-        adSlot.addService(companionAdsService);
+        if (adSlot) adSlot.addService(companionAdsService);
         if (typeof serviceConfig === "object") {
             if (serviceConfig.hasOwnProperty("enableSyncLoading")) {
                 companionAdsService.enableSyncLoading();
@@ -659,9 +661,9 @@ class Bling extends Component {
         this.defineSizeMapping(adSlot, sizeMapping);
 
         if (collapseEmptyDiv !== undefined) {
-            if (Array.isArray(collapseEmptyDiv)) {
+            if (Array.isArray(collapseEmptyDiv) && adSlot) {
                 adSlot.setCollapseEmptyDiv.call(adSlot, ...collapseEmptyDiv);
-            } else {
+            } else if (adSlot) {
                 adSlot.setCollapseEmptyDiv(collapseEmptyDiv);
             }
         }
@@ -703,10 +705,12 @@ class Bling extends Component {
         }
 
         // GPT checks if the same service is already added.
-        if (content) {
-            adSlot.addService(Bling._adManager.googletag.content());
-        } else {
-            adSlot.addService(Bling._adManager.googletag.pubads());
+        if(adSlot){
+            if (content) {
+                adSlot.addService(Bling._adManager.googletag.content());
+            } else {
+                adSlot.addService(Bling._adManager.googletag.pubads());
+            }
         }
     }
 
