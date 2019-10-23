@@ -18,7 +18,7 @@
             "bracketSpacing": false,
             "semi": true,
             "useTabs": false,
-            "parser": "babylon",
+            "parser": "babel",
             "jsxBracketSameLine": false
         }]
     },

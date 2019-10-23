@@ -1,13 +1,15 @@
 /* eslint-disable react/sort-comp */
-import React, { Component } from "react";
+import React, {Component} from "react";
 import PropTypes from "prop-types";
 import ReactDOM from "react-dom";
+import {debounce} from "throttle-debounce";
 import invariant from "invariant";
 import deepEqual from "deep-equal";
 import hoistStatics from "hoist-non-react-statics";
+
 import Events from "./Events";
 import filterPropsSimple from "./utils/filterProps";
-import { createManager, pubadsAPI } from "./createManager";
+import {createManager, pubadsAPI} from "./createManager";
 /**
  * An Ad Component using Google Publisher Tags.
  * This component should work standalone w/o context.
@@ -193,6 +195,12 @@ class Bling extends Component {
          */
         style: PropTypes.object,
         /**
+         * An optional object to be applied as `className` props to the container div.
+         *
+         * @property classes
+         */
+        classes: PropTypes.string,
+        /**
          * An optional property to control non-personalized Ads.
          * https://support.google.com/admanager/answer/7678538
          *
@@ -221,6 +229,7 @@ class Bling extends Component {
         "forceSafeFrame",
         "safeFrameConfig"
     ];
+
     /**
      * An array of prop names which requires to create a new ad slot and render as a new ad.
      *
@@ -234,6 +243,7 @@ class Bling extends Component {
         "content",
         "npa"
     ];
+
     /**
      * An instance of ad manager.
      *
@@ -242,6 +252,7 @@ class Bling extends Component {
      * @static
      */
     static _adManager = createManager();
+
     /**
      *
      * @property
@@ -305,6 +316,7 @@ class Bling extends Component {
             ...config
         };
     }
+
     /**
      * Returns the GPT version.
      *
@@ -315,6 +327,7 @@ class Bling extends Component {
     static getGPTVersion() {
         return Bling._adManager.getGPTVersion();
     }
+
     /**
      * Returns the Pubads Service version.
      *
@@ -325,6 +338,7 @@ class Bling extends Component {
     static getPubadsVersion() {
         return Bling._adManager.getPubadsVersion();
     }
+
     /**
      * Sets a flag to indicate whether the correlator value should always be same across the ads in the page or not.
      *
@@ -335,6 +349,7 @@ class Bling extends Component {
     static syncCorrelator(value) {
         Bling._adManager.syncCorrelator(value);
     }
+
     /**
      * Trigger re-rendering of all the ads.
      *
@@ -344,6 +359,7 @@ class Bling extends Component {
     static render() {
         Bling._adManager.renderAll();
     }
+
     /**
      * Refreshes all the ads in the page with a new correlator value.
      *
@@ -354,6 +370,7 @@ class Bling extends Component {
     static refresh(slots, options) {
         Bling._adManager.refresh(slots, options);
     }
+
     /**
      * Clears the ads for the specified ad slots, if no slots are provided, all the ads will be cleared.
      *
@@ -364,15 +381,6 @@ class Bling extends Component {
     static clear(slots) {
         Bling._adManager.clear(slots);
     }
-    /**
-     * Updates the correlator value for the next ad request.
-     *
-     * @method updateCorrelator
-     * @static
-     */
-    static updateCorrelator() {
-        Bling._adManager.updateCorrelator();
-    }
 
     static set testManager(testManager) {
         invariant(testManager, "Pass in createManagerTest to mock GPT");
@@ -380,6 +388,7 @@ class Bling extends Component {
     }
 
     state = {
+        sizeMapping: this.props.sizeMapping,
         scriptLoaded: false,
         inViewport: false
     };
@@ -394,6 +403,10 @@ class Bling extends Component {
             : Bling._config.viewableThreshold;
     }
 
+    _debouncedRefresh = debounce(50, () => {
+        this.refresh();
+    });
+
     componentDidMount() {
         Bling._adManager.addInstance(this);
         Bling._adManager
@@ -402,22 +415,24 @@ class Bling extends Component {
             .catch(this.onScriptError.bind(this));
     }
 
-    componentWillReceiveProps(nextProps) {
+    static getDerivedStateFromProps(nextProps, state) {
         const {propsEqual} = Bling._config;
-        const {sizeMapping} = this.props;
+        const {sizeMapping} = state;
 
         if (
             (nextProps.sizeMapping || sizeMapping) &&
             !propsEqual(nextProps.sizeMapping, sizeMapping)
         ) {
-            Bling._adManager.removeMQListener(this, nextProps);
+            Bling._adManager.removeMQListener(Bling, nextProps);
         }
+
+        return null;
     }
 
     shouldComponentUpdate(nextProps, nextState) {
         // if adUnitPath changes, need to create a new slot, re-render
         // otherwise, just refresh
-        const { scriptLoaded, inViewport } = nextState;
+        const {scriptLoaded, inViewport} = nextState;
         const notInViewport = this.notInViewport(nextProps, nextState);
         const inViewportChanged = this.state.inViewport !== inViewport;
         const isScriptLoaded = this.state.scriptLoaded !== scriptLoaded;
@@ -425,11 +440,12 @@ class Bling extends Component {
         // Exit early for visibility change, before executing deep equality check.
         if (notInViewport) {
             return false;
-        } else if (inViewportChanged) {
+        }
+        if (inViewportChanged) {
             return true;
         }
 
-        const { filterProps, propsEqual } = Bling._config;
+        const {filterProps, propsEqual} = Bling._config;
         const refreshableProps = filterProps(
             Bling.refreshableProps,
             this.props,
@@ -450,22 +466,12 @@ class Bling extends Component {
 
         if (shouldRefresh) {
             this.configureSlot(this._adSlot, nextProps);
+            this.refresh();
+            return false;
         }
 
-        if (Bling._adManager._syncCorrelator) {
-            if (shouldRefresh) {
-                Bling._adManager.refresh();
-            } else if (shouldRender || isScriptLoaded) {
-                Bling._adManager.renderAll();
-            }
-        } else {
-            if (shouldRefresh) {
-                this.refresh();
-                return false;
-            }
-            if (shouldRender || isScriptLoaded) {
-                return true;
-            }
+        if (shouldRender || isScriptLoaded) {
+            return true;
         }
 
         return false;
@@ -494,13 +500,19 @@ class Bling extends Component {
         }
     }
 
+    isAdMounted() {
+        return Bling._adManager.getMountedInstances().indexOf(this) !== -1;
+    }
+
     onScriptLoaded() {
-        const { onScriptLoaded } = this.props;
+        const {onScriptLoaded} = this.props;
 
         if (this.getRenderWhenViewable()) {
             this.foldCheck();
         }
-        this.setState({ scriptLoaded: true }, onScriptLoaded); // eslint-disable-line react/no-did-mount-set-state
+        if (this.isAdMounted()) {
+            this.setState({scriptLoaded: true}, onScriptLoaded); // eslint-disable-line react/no-did-mount-set-state
+        }
     }
 
     onScriptError(err) {
@@ -508,6 +520,20 @@ class Bling extends Component {
             `Ad: Failed to load gpt for ${Bling._config.seedFileUrl}`,
             err
         );
+    }
+
+    onMediaQueryChange() {
+        // Debounce refresh, since it can be called multiple times if there are
+        // multiple MQ listeners, e.g. the current screen might match
+        // `(min-width: 1024px)` AND `(min-width: 768px)`, or an MQ might change
+        // from matching to not matching, while another does the opposite.
+        // The slot should only be refreshed once per "resize" otherwise there
+        // might be unnecessary calls to GPT.
+        this._debouncedRefresh();
+        if (this.props.onMediaQueryChange) {
+            // Call for each change event
+            this.props.onMediaQueryChange(event);
+        }
     }
 
     getRenderWhenViewable(props = this.props) {
@@ -535,22 +561,25 @@ class Bling extends Component {
         const inViewport = Bling._adManager.isInViewport(
             ReactDOM.findDOMNode(this),
             slotSize,
-            this.viewableThreshold
+            this.viewableThreshold,
+            this
         );
         if (inViewport) {
-            this.setState({ inViewport: true });
+            this.setState({inViewport: true});
         }
     }
 
     defineSizeMapping(adSlot, sizeMapping) {
         if (sizeMapping) {
-            Bling._adManager.addMQListener(this, this.props);
-            const sizeMappingArray = sizeMapping
-                .reduce((mapping, size) => {
-                    return mapping.addSize(size.viewport, size.slot);
-                }, Bling._adManager.googletag.sizeMapping())
-                .build();
-            adSlot.defineSizeMapping(sizeMappingArray);
+            Bling._adManager.googletag.cmd.push(() => {
+                Bling._adManager.addMQListener(this, this.props);
+                const sizeMappingArray = sizeMapping
+                    .reduce((mapping, size) => {
+                        return mapping.addSize(size.viewport, size.slot);
+                    }, Bling._adManager.googletag.sizeMapping())
+                    .build();
+                adSlot.defineSizeMapping(sizeMappingArray);
+            });
         }
     }
 
@@ -580,7 +609,9 @@ class Bling extends Component {
 
     addCompanionAdService(serviceConfig, adSlot) {
         const companionAdsService = Bling._adManager.googletag.companionAds();
-        if (adSlot) adSlot.addService(companionAdsService);
+        if (adSlot) {
+            adSlot.addService(companionAdsService);
+        }
         if (typeof serviceConfig === "object") {
             if (serviceConfig.hasOwnProperty("enableSyncLoading")) {
                 companionAdsService.enableSyncLoading();
@@ -615,12 +646,12 @@ class Bling extends Component {
     }
 
     notInViewport(props = this.props, state = this.state) {
-        const { inViewport } = state;
+        const {inViewport} = state;
         return this.getRenderWhenViewable(props) && !inViewport;
     }
 
     defineSlot() {
-        const { adUnitPath, outOfPage, npa } = this.props;
+        const {adUnitPath, outOfPage, npa} = this.props;
         const divId = this._divId;
         const slotSize = this.getSlotSize();
 
@@ -705,7 +736,7 @@ class Bling extends Component {
         }
 
         // GPT checks if the same service is already added.
-        if(adSlot){
+        if (adSlot) {
             if (content) {
                 adSlot.addService(Bling._adManager.googletag.content());
             } else {
@@ -715,19 +746,13 @@ class Bling extends Component {
     }
 
     display() {
-        const { content } = this.props;
+        const {content} = this.props;
         const divId = this._divId;
         const adSlot = this._adSlot;
 
         if (content) {
             Bling._adManager.googletag.content().setContent(adSlot, content);
         } else {
-            if (
-                !Bling._adManager._disableInitialLoad &&
-                !Bling._adManager._syncCorrelator
-            ) {
-                Bling._adManager.updateCorrelator();
-            }
             Bling._adManager.googletag.display(divId);
             if (
                 Bling._adManager._disableInitialLoad &&
@@ -740,7 +765,11 @@ class Bling extends Component {
 
     clear() {
         const adSlot = this._adSlot;
-        if (adSlot && adSlot.hasOwnProperty("getServices")) {
+        if (
+            adSlot &&
+            adSlot.getServices &&
+            typeof adSlot.getServices === "function"
+        ) {
             // googletag.ContentService doesn't clear content
             const services = adSlot.getServices();
             if (this._divId && services.some(s => !!s.setContent)) {
@@ -760,8 +789,8 @@ class Bling extends Component {
     }
 
     render() {
-        const { scriptLoaded } = this.state;
-        const { id, outOfPage, style } = this.props;
+        const {scriptLoaded} = this.state;
+        const {id, outOfPage, style, classes} = this.props;
         const shouldNotRender = this.notInViewport(this.props, this.state);
 
         if (!scriptLoaded || shouldNotRender) {
@@ -800,7 +829,7 @@ class Bling extends Component {
         }
         this._divId = id || Bling._adManager.generateDivId();
 
-        return <div id={this._divId} style={style} />;
+        return <div className={classes} id={this._divId} style={style} />;
     }
 
     /**
@@ -826,8 +855,7 @@ class Bling extends Component {
 export default hoistStatics(
     Bling,
     pubadsAPI.reduce((api, method) => {
-        api[method] = (...args) =>
-            Bling._adManager.pubadsProxy({ method, args });
+        api[method] = (...args) => Bling._adManager.pubadsProxy({method, args});
         return api;
     }, {})
 );

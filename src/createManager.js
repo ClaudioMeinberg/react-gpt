@@ -345,14 +345,6 @@ export class AdManager extends EventEmitter {
             return;
         }
 
-        const checkPubadsReady = cb => {
-            if (this.pubadsReady) {
-                cb();
-            } else {
-                setTimeout(checkPubadsReady, 50, cb);
-            }
-        };
-
         const instances = this.getMountedInstances();
         let hasPubAdsService = false;
         let dummyAdSlot;
@@ -387,7 +379,7 @@ export class AdManager extends EventEmitter {
         this.googletag.enableServices();
 
         // After the service is enabled, check periodically until `pubadsReady` flag returns true before proceeding the rest.
-        checkPubadsReady(() => {
+        this.googletag.cmd.push(() => {
             // destroy dummy ad slot if exists.
             if (dummyAdSlot) {
                 this.googletag.destroySlots([dummyAdSlot]);
@@ -429,7 +421,7 @@ export class AdManager extends EventEmitter {
         const instances = this.getMountedInstances();
         instances.forEach((instance, i) => {
             if (i === 0) {
-                this.updateCorrelator();
+                this.googletag.destroySlots();
             }
             instance.forceUpdate();
         });
@@ -449,15 +441,6 @@ export class AdManager extends EventEmitter {
             return false;
         }
         return this.googletag.pubads().getVersion();
-    }
-
-    updateCorrelator() {
-        if (!this.pubadsReady) {
-            return false;
-        }
-        this.googletag.pubads().updateCorrelator();
-
-        return true;
     }
 
     load(url) {
